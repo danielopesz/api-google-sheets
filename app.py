@@ -88,6 +88,17 @@ def handle_webhook():
         return jsonify({"message": "Agendamento registrado na planilha!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@app.route("/teste-conexao", methods=["GET"])
+def teste_conexao():
+    try:
+        # Tentar ler a primeira linha
+        valores = sheet.row_values(1)
+        return jsonify({"status": "OK", "primeira_linha": valores})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Obtém a porta correta do Render
