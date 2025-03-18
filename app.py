@@ -19,7 +19,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 # Nome da planilha
-SHEET_NAME = "MinhaPlanilha"
+SHEET_NAME = "Planilha Agendamento Devolus"
 sheet = client.open(SHEET_NAME).sheet1
 
 @app.route("/")
