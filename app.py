@@ -113,4 +113,23 @@ def handle_webhook():
         logger.error(f"Erro: {str(e)}")
         return jsonify({"error": "Erro interno"}), 500
 
-# ... (mantenha o restante do código igual)
+
+@app.route("/api/agendamentos", methods=["GET"])
+def listar_agendamentos():
+    try:
+        registros = sheet.get_all_records()
+        return jsonify({"total": len(registros), "dados": registros})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/")
+def home():
+    return jsonify({
+        "status": "ativo",
+        "versao": "2.1.0",
+        "instrucoes": "Formato esperado: VISTORIADOR | LOCATÁRIO | DATA/HORA | IMÓVEL | E-MAIL"
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
