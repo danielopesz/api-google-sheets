@@ -38,12 +38,15 @@ sheet = get_google_sheet()
 
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():
-    auth_header = request.headers.get('Authorization', '')
-    print(f"🔑 Header de Autorização Recebido: '{auth_header}'")  # Log crítico para debug
-    
-    expected_token = 'Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'
-    if auth_header.strip() != expected_token:
-        print(f"❌ Falha na Autenticação! Esperado: '{expected_token}' | Recebido: '{auth_header}'")
+    # DEBUG: Log completo da requisição
+    print("\n=== DADOS BRUTOS DA REQUISIÇÃO ===")
+    print("Headers recebidos:", dict(request.headers))
+    print("Corpo (raw):", request.get_data(as_text=True))
+    auth_header = request.headers.get('Authorization', '').strip().lower()
+    expected_token = 'bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'  # Tudo em minúsculo
+
+    if not auth_header.startswith('bearer ') or auth_header != expected_token:
+        print(f"🔴 ERRO: Header inválido! Recebido: '{auth_header}' | Esperado: '{expected_token}'")
         return jsonify({"error": "Não autorizado"}), 401
 
     # Verificação do evento
