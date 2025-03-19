@@ -5,7 +5,7 @@ import json
 import os
 import logging
 from datetime import datetime, timedelta
-import pytz  # Adicione esta linha
+import pytz  
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -42,13 +42,9 @@ sheet = get_google_sheet()
 
 def formatar_data(iso_date):
     try:
-        # Converter para UTC e depois para Horário de Brasília (UTC-3)
         dt_utc = datetime.fromisoformat(iso_date.replace('Z', '+00:00')).replace(tzinfo=pytz.utc)
         dt_local = dt_utc.astimezone(pytz.timezone('America/Sao_Paulo'))
-        
-        # Subtrair 3 horas para corrigir o fuso
         dt_corrigido = dt_local - timedelta(hours=3)
-        
         return dt_corrigido.strftime("%d/%m/%Y %H:%M:%S")
     except Exception as e:
         logger.error(f"Erro ao formatar data: {str(e)}")
@@ -56,9 +52,7 @@ def formatar_data(iso_date):
 
 def extrair_email(observacao):
     try:
-        if not observacao:
-            return "N/I"
-        return observacao.split(',')[0].strip()
+        return observacao.split(',')[0].strip() if observacao else "N/I"
     except Exception as e:
         logger.error(f"Erro ao extrair email: {str(e)}")
         return "N/I"
@@ -68,12 +62,7 @@ def handle_webhook():
     try:
         if BYPASS_AUTH:
             logger.warning("⚠️ MODO INSECURO: Autenticação desativada!")
-        else:
-            auth_header = request.headers.get('Authorization', '').strip()
-            expected_token = 'Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'
-            if auth_header != expected_token:
-                return jsonify({"error": "Não autorizado"}), 401
-
+        
         data = request.get_json()
         if not data or data.get('evento') != 'AGENDAMENTO_NOVO':
             return jsonify({"error": "Evento inválido"}), 400
@@ -84,51 +73,31 @@ def handle_webhook():
         imovel = dados.get('imovel', {})
         endereco_completo = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
 
-        # Obter locatário (nomeContato como fallback)
-        locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
-
         nova_linha = [
-            dados.get('vistoriador', {}).get('nome', 'N/I'),  # Coluna A: VISTORIADOR
-            locatario,                                        # Coluna B: LOCATÁRIO
-            formatar_data(dados.get('dataHoraInicio', '')),   # Coluna C: DATA/HORA
-            endereco_completo,                                 # Coluna D: IMÓVEL
-            extrair_email(dados.get('observacao', ''))         # Coluna E: E-MAIL
+            dados.get('vistoriador', {}).get('nome', 'N/I'),
+            dados.get('locatario') or dados.get('nomeContato', 'N/I'),
+            formatar_data(dados.get('dataHoraInicio', '')),
+            endereco_completo,
+            extrair_email(dados.get('observacao', ''))
         ]
 
         sheet.append_row(nova_linha)
-        logger.info(f"Dados inseridos: {nova_linha}")
-
-        return jsonify({
-            "status": "success",
-            "dados_inseridos": {
-                "vistoriador": nova_linha[0],
-                "locatario": nova_linha[1],
-                "data_hora": nova_linha[2],
-                "endereco": nova_linha[3],
-                "email": nova_linha[4]
-            }
-        }), 201
+        return jsonify({"status": "success", "dados_inseridos": nova_linha}), 201
 
     except Exception as e:
         logger.error(f"Erro: {str(e)}")
         return jsonify({"error": "Erro interno"}), 500
 
-
 @app.route("/api/agendamentos", methods=["GET"])
 def listar_agendamentos():
     try:
-        registros = sheet.get_all_records()
-        return jsonify({"total": len(registros), "dados": registros})
+        return jsonify({"dados": sheet.get_all_records()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/")
 def home():
-    return jsonify({
-        "status": "ativo",
-        "versao": "2.1.0",
-        "instrucoes": "Formato esperado: VISTORIADOR | LOCATÁRIO | DATA/HORA | IMÓVEL | E-MAIL"
-    })
+    return jsonify({"status": "ativo", "versao": "3.0.0"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
