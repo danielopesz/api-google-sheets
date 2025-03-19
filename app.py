@@ -18,7 +18,7 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 SHEET_NAME = "Planilha Agendamento Devolus"
-BYPASS_AUTH = os.getenv("BYPASS_AUTH", "false").lower() == "true"
+BYPASS_AUTH = os.getenv("BYPASS_AUTH", "true").lower() == "true"
 
 # Autenticação Google Sheets
 def get_google_sheet():
