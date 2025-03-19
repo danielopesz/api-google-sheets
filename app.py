@@ -4,8 +4,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
 import logging
-from datetime import datetime, timedelta
-import pytz  
+from datetime import datetime
+import pytz
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,6 @@ SCOPE = [
 SHEET_NAME = "Planilha Agendamento Devolus"
 BYPASS_AUTH = os.getenv("BYPASS_AUTH", "true").lower() == "true"
 
-# Autenticação Google Sheets
 def get_google_sheet():
     credentials_json = os.getenv("GDRIVE_CREDENTIALS_JSON")
     if not credentials_json:
@@ -43,9 +42,9 @@ sheet = get_google_sheet()
 def formatar_data(iso_date):
     try:
         dt_utc = datetime.fromisoformat(iso_date.replace('Z', '+00:00')).replace(tzinfo=pytz.utc)
-        dt_local = dt_utc.astimezone(pytz.timezone('America/Sao_Paulo'))
-        dt_corrigido = dt_local - timedelta(hours=3)
-        return dt_corrigido.strftime("%d/%m/%Y %H:%M:%S")
+        tz = pytz.timezone('America/Sao_Paulo')
+        dt_local = dt_utc.astimezone(tz)
+        return dt_local.strftime("%d/%m/%Y %H:%M:%S")
     except Exception as e:
         logger.error(f"Erro ao formatar data: {str(e)}")
         return "Data inválida"
@@ -69,20 +68,21 @@ def handle_webhook():
 
         dados = data.get('dados', {})
         
-        # Endereço completo
+        # Processar dados
         imovel = dados.get('imovel', {})
-        endereco_completo = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
+        endereco = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
+        locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
 
         nova_linha = [
             dados.get('vistoriador', {}).get('nome', 'N/I'),
-            dados.get('locatario') or dados.get('nomeContato', 'N/I'),
+            locatario,
             formatar_data(dados.get('dataHoraInicio', '')),
-            endereco_completo,
+            endereco,
             extrair_email(dados.get('observacao', ''))
         ]
 
         sheet.append_row(nova_linha)
-        return jsonify({"status": "success", "dados_inseridos": nova_linha}), 201
+        return jsonify({"status": "success", "dados": nova_linha}), 201
 
     except Exception as e:
         logger.error(f"Erro: {str(e)}")
@@ -97,7 +97,7 @@ def listar_agendamentos():
 
 @app.route("/")
 def home():
-    return jsonify({"status": "ativo", "versao": "3.0.0"})
+    return jsonify({"status": "ativo", "versao": "3.1.0"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
