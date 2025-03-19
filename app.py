@@ -18,7 +18,7 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 SHEET_NAME = "Planilha Agendamento Devolus"
-BYPASS_AUTH = os.getenv("BYPASS_AUTH", "true").lower() == "true"  # Ativar via variável de ambiente
+BYPASS_AUTH = os.getenv("BYPASS_AUTH", "false").lower() == "true"
 
 # Autenticação Google Sheets
 def get_google_sheet():
@@ -39,38 +39,50 @@ def get_google_sheet():
 
 sheet = get_google_sheet()
 
+def formatar_data(iso_date):
+    try:
+        dt = datetime.fromisoformat(iso_date.replace('Z', '+00:00'))
+        return dt.strftime("%d/%m/%Y %H:%M:%S")
+    except Exception as e:
+        logger.error(f"Erro ao formatar data: {str(e)}")
+        return "Data inválida"
+
+def extrair_email(observacao):
+    try:
+        if not observacao:
+            return "N/I"
+        return observacao.split(',')[0].strip()
+    except Exception as e:
+        logger.error(f"Erro ao extrair email: {str(e)}")
+        return "N/I"
+
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():
     try:
-        # Log de diagnóstico
-        logger.info("\n=== REQUISIÇÃO RECEBIDA ===")
-        logger.info(f"Origem: {request.remote_addr}")
-        logger.info(f"User-Agent: {request.headers.get('User-Agent')}")
-        logger.info(f"Bypass Auth: {BYPASS_AUTH}")
-
-        # Bypass de autenticação (APENAS PARA AMBIENTE INTERNO)
         if BYPASS_AUTH:
-            logger.warning("⚠️ MODO INSECURO: Autenticação via token desativada!")
+            logger.warning("⚠️ MODO INSECURO: Autenticação desativada!")
         else:
             auth_header = request.headers.get('Authorization', '').strip()
             expected_token = 'Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'
             if auth_header != expected_token:
-                logger.error("Falha de autenticação")
                 return jsonify({"error": "Não autorizado"}), 401
 
-        # Validação básica do payload
         data = request.get_json()
         if not data or data.get('evento') != 'AGENDAMENTO_NOVO':
             return jsonify({"error": "Evento inválido"}), 400
 
-        # Processamento dos dados
         dados = data.get('dados', {})
+        
+        # Endereço completo
+        imovel = dados.get('imovel', {})
+        endereco_completo = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
+
         nova_linha = [
-            dados.get('vistoriador', {}).get('nome', 'N/I'),
-            str(dados.get('tipoVistoria', {}).get('id', '')),
-            dados.get('locatario', 'N/I'),
-            dados.get('dataHoraInicio', 'N/I'),
-            dados.get('imovel', {}).get('endereco', 'N/I')
+            dados.get('vistoriador', {}).get('nome', 'N/I'),  # Coluna A: VISTORIADOR
+            dados.get('locatario', 'N/I'),                     # Coluna B: LOCATÁRIO
+            formatar_data(dados.get('dataHoraInicio', '')),     # Coluna C: DATA/HORA
+            endereco_completo,                                  # Coluna D: IMÓVEL
+            extrair_email(dados.get('observacao', ''))          # Coluna E: E-MAIL
         ]
 
         sheet.append_row(nova_linha)
@@ -78,7 +90,13 @@ def handle_webhook():
 
         return jsonify({
             "status": "success",
-            "linha_adicionada": nova_linha
+            "dados_inseridos": {
+                "vistoriador": nova_linha[0],
+                "locatario": nova_linha[1],
+                "data_hora": nova_linha[2],
+                "endereco": nova_linha[3],
+                "email": nova_linha[4]
+            }
         }), 201
 
     except Exception as e:
@@ -97,10 +115,10 @@ def listar_agendamentos():
 def home():
     return jsonify({
         "status": "ativo",
-        "ambiente": "interno" if BYPASS_AUTH else "protegido",
-        "aviso": "Autenticação desativada" if BYPASS_AUTH else "Modo seguro"
+        "versao": "2.1.0",
+        "instrucoes": "Formato esperado: VISTORIADOR | LOCATÁRIO | DATA/HORA | IMÓVEL | E-MAIL"
     })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=BYPASS_AUTH)
+    app.run(host="0.0.0.0", port=port)
