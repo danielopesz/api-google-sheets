@@ -18,21 +18,27 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive"
 ]
 SHEET_NAME = "Planilha Agendamento Devolus"
+EXPECTED_TOKEN = "Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6"
 
 # Autenticação Google Sheets
 def get_google_sheet():
-    credentials_json = os.getenv("GDRIVE_CREDENTIALS_JSON")
-    if not credentials_json:
-        raise ValueError("Variável de ambiente GDRIVE_CREDENTIALS_JSON não configurada!")
-    
-    creds_dict = json.loads(credentials_json)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    client = gspread.authorize(creds)
-    
     try:
+        credentials_json = os.getenv("GDRIVE_CREDENTIALS_JSON")
+        if not credentials_json:
+            raise ValueError("Variável de ambiente GDRIVE_CREDENTIALS_JSON não configurada!")
+        
+        creds_dict = json.loads(credentials_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+        client = gspread.authorize(creds)
+        client.timeout = 20  # Timeout de 20 segundos
+        
         return client.open(SHEET_NAME).sheet1
+    
     except gspread.SpreadsheetNotFound:
         logger.error(f"Planilha '{SHEET_NAME}' não encontrada!")
+        raise
+    except Exception as e:
+        logger.error(f"Erro na autenticação Google: {str(e)}")
         raise
 
 sheet = get_google_sheet()
@@ -40,64 +46,78 @@ sheet = get_google_sheet()
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():
     try:
-        # Log detalhado para debug
-        logger.info("\n=== NOVA REQUISIÇÃO RECEBIDA ===")
-        logger.info(f"Data/Hora: {datetime.utcnow().isoformat()}")
-        logger.info(f"Headers: {dict(request.headers)}")
-        logger.info(f"Body (primeiros 500 caracteres): {request.get_data(as_text=True)[:500]}")
-
-        # Verificar User-Agent (obrigatório pela documentação)
-        user_agent = request.headers.get('User-Agent')
-        if not user_agent or len(user_agent) > 100:
-            logger.error("Erro 400 - User-Agent inválido ou ausente")
-            return jsonify({"error": "User-Agent inválido"}), 400
-        
-        # FORÇAR TOKEN MANUALMENTE (APENAS PARA TESTE)
-        request.headers['Authorization'] = 'Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'
-        logger.warning("AUTENTICAÇÃO FORÇADA - REMOVER EM PRODUÇÃO!")
-
-        # Verificação do token (Bearer authentication)
+        # Verificação primária de autenticação
         auth_header = request.headers.get('Authorization', '').strip()
-        expected_token = 'Bearer a991b143-4b65-4027-9b8d-e6a9f7d06bc6'
-
-        if auth_header != expected_token:
-            logger.error(f"TOKEN RECEBIDO: '{auth_header}' | ESPERADO: '{expected_token}'")
+        if auth_header != EXPECTED_TOKEN:
+            logger.error(f"Autenticação falhou. Recebido: '{auth_header}'")
             return jsonify({"error": "Não autorizado"}), 401
 
-        # Verificar evento e processar dados
+        # Verificação secundária do User-Agent
+        user_agent = request.headers.get('User-Agent')
+        if not user_agent or len(user_agent) > 100:
+            logger.error("User-Agent inválido ou ausente")
+            return jsonify({"error": "User-Agent inválido"}), 400
+
+        # Log de diagnóstico seguro
+        logger.info("\n=== REQUISIÇÃO VÁLIDA RECEBIDA ===")
+        logger.info(f"Data/Hora: {datetime.utcnow().isoformat()}")
+        logger.info(f"IP Origem: {request.remote_addr}")
+        logger.info(f"User-Agent: {user_agent}")
+
+        # Processamento do payload
         data = request.get_json()
         if not data or data.get('evento') != 'AGENDAMENTO_NOVO':
-            logger.error(f"Erro 400 - Evento inválido: {data.get('evento') if data else 'Sem dados'}")
+            logger.error("Evento não suportado ou formato inválido")
             return jsonify({"error": "Evento não suportado"}), 400
 
-        # Processamento dos dados
         dados = data.get('dados', {})
-        logger.info(f"Dados recebidos: {json.dumps(dados, indent=2)}")
         
-        # Mapeamento resiliente com fallbacks
+        # Validação de campos obrigatórios
+        required_fields = {
+            'vistoriador': ['nome'],
+            'imovel': ['endereco'],
+            'dataHoraInicio': None
+        }
+        
+        for field, subfields in required_fields.items():
+            if not dados.get(field):
+                logger.error(f"Campo obrigatório faltando: {field}")
+                return jsonify({"error": f"Campo '{field}' é obrigatório"}), 400
+                
+            if subfields:
+                for subfield in subfields:
+                    if not dados[field].get(subfield):
+                        logger.error(f"Subcampo obrigatório faltando: {field}.{subfield}")
+                        return jsonify({"error": f"Campo '{field}.{subfield}' é obrigatório"}), 400
+
+        # Construção da linha para planilha
         nova_linha = [
-            dados.get('vistoriador', {}).get('nome', 'N/I'),  # Coluna A
-            str(dados.get('tipoVistoria', {}).get('id', '')),   # Coluna B
-            dados.get('locatario', 'N/I'),                      # Coluna C
-            dados.get('dataHoraInicio', 'N/I'),                 # Coluna D
-            dados.get('imovel', {}).get('endereco', 'N/I')      # Coluna E
+            dados['vistoriador']['nome'],               # Coluna A
+            str(dados.get('tipoVistoria', {}).get('id', '')),  # Coluna B
+            dados.get('locatario', ''),                 # Coluna C
+            dados['dataHoraInicio'],                    # Coluna D
+            dados['imovel']['endereco']                 # Coluna E
         ]
 
-        # Escrever na planilha
+        # Escrita na planilha
         sheet.append_row(nova_linha)
-        logger.info(f"Dados inseridos com sucesso: {nova_linha}")
-        
-        return jsonify({"message": "Agendamento registrado com sucesso!"}), 201
+        logger.info(f"Dados inseridos: {nova_linha}")
+
+        return jsonify({
+            "status": "sucesso",
+            "mensagem": "Agendamento registrado",
+            "id_planilha": sheet.spreadsheet.id
+        }), 201
 
     except Exception as e:
-        logger.error(f"Erro 500 - {str(e)}", exc_info=True)
-        return jsonify({"error": "Erro interno no servidor"}), 500
+        logger.error(f"Erro interno: {str(e)}", exc_info=True)
+        return jsonify({"error": "Erro interno no processamento"}), 500
 
 @app.route("/")
 def home():
     return jsonify({
         "status": "ativo",
-        "versao": "2.0.0",
+        "versao": "3.0.0",
         "documentacao": "https://api.devolusvistoria.com.br"
     })
 
