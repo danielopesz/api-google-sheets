@@ -6,6 +6,7 @@ import os
 import logging
 from datetime import datetime
 import pytz
+import unicodedata
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -49,12 +50,33 @@ def formatar_data(iso_date):
         logger.error(f"Erro ao formatar data: {str(e)}")
         return "Data inválida"
 
-def extrair_email(observacao):
+def processar_observacao(observacao):
     try:
-        return observacao.split(',')[0].strip() if observacao else "N/I"
+        if not observacao:
+            return "N/I", "N/I"
+            
+        # Normalizar para remover acentos e converter para minúsculas
+        observacao = unicodedata.normalize('NFKD', observacao).lower()
+        
+        # Dividir partes e processar tipo
+        partes = [p.strip() for p in observacao.split(',')]
+        primeira_parte = partes[0]
+        
+        # Determinar tipo
+        tipo = "N/I"
+        if 'entrada' in primeira_parte:
+            tipo = "ENTRADA"
+        elif 'saida' in primeira_parte or 'saída' in primeira_parte:
+            tipo = "SAÍDA"
+        
+        # Extrair email (segunda parte)
+        email = partes[1] if len(partes) > 1 else "N/I"
+        
+        return tipo, email
+        
     except Exception as e:
-        logger.error(f"Erro ao extrair email: {str(e)}")
-        return "N/I"
+        logger.error(f"Erro ao processar observação: {str(e)}")
+        return "N/I", "N/I"
 
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():
@@ -67,27 +89,36 @@ def handle_webhook():
             return jsonify({"error": "Evento inválido"}), 400
 
         dados = data.get('dados', {})
-
-        tipo_vistoria = dados.get('tipoVistoria')
-        logger.info(f"Debug tipoVistoria: {'Presente' if tipo_vistoria else 'Ausente'}")
-        if tipo_vistoria:
-            logger.info(f"Conteúdo tipoVistoria: {json.dumps(tipo_vistoria, indent=2)}")
         
         # Processar dados
         imovel = dados.get('imovel', {})
         endereco = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
         locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
+        tipo, email = processar_observacao(dados.get('observacao', ''))
 
         nova_linha = [
-            dados.get('vistoriador', {}).get('nome', 'N/I'),
-            locatario,
-            formatar_data(dados.get('dataHoraInicio', '')),
-            endereco,
-            extrair_email(dados.get('observacao', ''))
+            tipo,                                               # Coluna A: TIPO
+            dados.get('vistoriador', {}).get('nome', 'N/I'),    # Coluna B: VISTORIADOR
+            locatario,                                          # Coluna C: LOCATÁRIO
+            formatar_data(dados.get('dataHoraInicio', '')),     # Coluna D: DATA/HORA
+            endereco,                                           # Coluna E: IMÓVEL
+            email                                               # Coluna F: E-MAIL
         ]
 
         sheet.append_row(nova_linha)
-        return jsonify({"status": "success", "dados": nova_linha}), 201
+        logger.info(f"Dados inseridos: {nova_linha}")
+        
+        return jsonify({
+            "status": "success",
+            "dados_inseridos": {
+                "tipo": nova_linha[0],
+                "vistoriador": nova_linha[1],
+                "locatario": nova_linha[2],
+                "data_hora": nova_linha[3],
+                "endereco": nova_linha[4],
+                "email": nova_linha[5]
+            }
+        }), 201
 
     except Exception as e:
         logger.error(f"Erro: {str(e)}")
@@ -102,7 +133,7 @@ def listar_agendamentos():
 
 @app.route("/")
 def home():
-    return jsonify({"status": "ativo", "versao": "3.1.0"})
+    return jsonify({"status": "ativo", "versao": "4.0.0"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
