@@ -79,7 +79,7 @@ def handle_webhook():
 
         nova_linha = [
             dados.get('vistoriador', {}).get('nome', 'N/I'),  # Coluna A: VISTORIADOR
-            dados.get('locatario', 'N/I'),                     # Coluna B: LOCATÁRIO
+            dados.get('locatario', ''),                     # Coluna B: LOCATÁRIO
             formatar_data(dados.get('dataHoraInicio', '')),     # Coluna C: DATA/HORA
             endereco_completo,                                  # Coluna D: IMÓVEL
             extrair_email(dados.get('observacao', ''))          # Coluna E: E-MAIL
