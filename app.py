@@ -4,7 +4,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz  # Adicione esta linha
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -41,8 +42,14 @@ sheet = get_google_sheet()
 
 def formatar_data(iso_date):
     try:
-        dt = datetime.fromisoformat(iso_date.replace('Z', '+00:00'))
-        return dt.strftime("%d/%m/%Y %H:%M:%S")
+        # Converter para UTC e depois para Horário de Brasília (UTC-3)
+        dt_utc = datetime.fromisoformat(iso_date.replace('Z', '+00:00')).replace(tzinfo=pytz.utc)
+        dt_local = dt_utc.astimezone(pytz.timezone('America/Sao_Paulo'))
+        
+        # Subtrair 3 horas para corrigir o fuso
+        dt_corrigido = dt_local - timedelta(hours=3)
+        
+        return dt_corrigido.strftime("%d/%m/%Y %H:%M:%S")
     except Exception as e:
         logger.error(f"Erro ao formatar data: {str(e)}")
         return "Data inválida"
@@ -77,12 +84,15 @@ def handle_webhook():
         imovel = dados.get('imovel', {})
         endereco_completo = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
 
+        # Obter locatário (nomeContato como fallback)
+        locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
+
         nova_linha = [
             dados.get('vistoriador', {}).get('nome', 'N/I'),  # Coluna A: VISTORIADOR
-            dados.get('locatario', ''),                     # Coluna B: LOCATÁRIO
-            formatar_data(dados.get('dataHoraInicio', '')),     # Coluna C: DATA/HORA
-            endereco_completo,                                  # Coluna D: IMÓVEL
-            extrair_email(dados.get('observacao', ''))          # Coluna E: E-MAIL
+            locatario,                                        # Coluna B: LOCATÁRIO
+            formatar_data(dados.get('dataHoraInicio', '')),   # Coluna C: DATA/HORA
+            endereco_completo,                                 # Coluna D: IMÓVEL
+            extrair_email(dados.get('observacao', ''))         # Coluna E: E-MAIL
         ]
 
         sheet.append_row(nova_linha)
@@ -103,22 +113,4 @@ def handle_webhook():
         logger.error(f"Erro: {str(e)}")
         return jsonify({"error": "Erro interno"}), 500
 
-@app.route("/api/agendamentos", methods=["GET"])
-def listar_agendamentos():
-    try:
-        registros = sheet.get_all_records()
-        return jsonify({"total": len(registros), "dados": registros})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/")
-def home():
-    return jsonify({
-        "status": "ativo",
-        "versao": "2.1.0",
-        "instrucoes": "Formato esperado: VISTORIADOR | LOCATÁRIO | DATA/HORA | IMÓVEL | E-MAIL"
-    })
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+# ... (mantenha o restante do código igual)
