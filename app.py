@@ -67,6 +67,11 @@ def handle_webhook():
             return jsonify({"error": "Evento inválido"}), 400
 
         dados = data.get('dados', {})
+
+        tipo_vistoria = dados.get('tipoVistoria')
+        logger.info(f"Debug tipoVistoria: {'Presente' if tipo_vistoria else 'Ausente'}")
+        if tipo_vistoria:
+            logger.info(f"Conteúdo tipoVistoria: {json.dumps(tipo_vistoria, indent=2)}")
         
         # Processar dados
         imovel = dados.get('imovel', {})
