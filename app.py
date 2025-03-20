@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import pytz
 import unicodedata
+import re
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -53,17 +54,14 @@ def formatar_data(iso_date):
 def processar_observacao(observacao):
     try:
         if not observacao:
-            return "N/I", "N/I"
+            return "N/I", "N/I", "N/I"
             
-        # Normalizar para remover acentos e converter para minúsculas
-        observacao = unicodedata.normalize('NFKD', observacao).lower()
-        
-        # Dividir partes e processar tipo
+        # Normalizar e dividir partes
         partes = [p.strip() for p in observacao.split(',')]
-        primeira_parte = partes[0]
         
         # Determinar tipo
         tipo = "N/I"
+        primeira_parte = unicodedata.normalize('NFKD', partes[0].lower())
         if 'entrada' in primeira_parte:
             tipo = "ENTRADA"
         elif 'saida' in primeira_parte or 'saída' in primeira_parte:
@@ -72,11 +70,18 @@ def processar_observacao(observacao):
         # Extrair email (segunda parte)
         email = partes[1] if len(partes) > 1 else "N/I"
         
-        return tipo, email
+        # Extrair metragem (terceira parte)
+        metragem = "N/I"
+        if len(partes) > 2:
+            numeros = re.findall(r'\d+', partes[2])
+            if numeros:
+                metragem = numeros[0] + "m²"
+        
+        return tipo, email, metragem
         
     except Exception as e:
         logger.error(f"Erro ao processar observação: {str(e)}")
-        return "N/I", "N/I"
+        return "N/I", "N/I", "N/I"
 
 @app.route('/api/webhook', methods=['POST'])
 def handle_webhook():
@@ -94,7 +99,7 @@ def handle_webhook():
         imovel = dados.get('imovel', {})
         endereco = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
         locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
-        tipo, email = processar_observacao(dados.get('observacao', ''))
+        tipo, email, metragem = processar_observacao(dados.get('observacao', ''))
 
         nova_linha = [
             tipo,                                               # Coluna A: TIPO
@@ -102,7 +107,8 @@ def handle_webhook():
             locatario,                                          # Coluna C: LOCATÁRIO
             formatar_data(dados.get('dataHoraInicio', '')),     # Coluna D: DATA/HORA
             endereco,                                           # Coluna E: IMÓVEL
-            email                                               # Coluna F: E-MAIL
+            metragem,                                           # Coluna F: METRAGEM
+            email                                               # Coluna G: E-MAIL
         ]
 
         sheet.append_row(nova_linha)
@@ -116,7 +122,8 @@ def handle_webhook():
                 "locatario": nova_linha[2],
                 "data_hora": nova_linha[3],
                 "endereco": nova_linha[4],
-                "email": nova_linha[5]
+                "metragem": nova_linha[5],
+                "email": nova_linha[6]
             }
         }), 201
 
@@ -133,7 +140,7 @@ def listar_agendamentos():
 
 @app.route("/")
 def home():
-    return jsonify({"status": "ativo", "versao": "4.0.0"})
+    return jsonify({"status": "ativo", "versao": "5.0.0"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
