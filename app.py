@@ -51,12 +51,55 @@ def formatar_data(iso_date):
         logger.error(f"Erro ao formatar data: {str(e)}")
         return "Data inválida"
 
+def processar_endereco(imovel):
+    try:
+        partes = []
+        
+        # Endereço básico
+        if imovel.get('endereco'):
+            partes.append(imovel['endereco'])
+            
+        # Número com vírgula
+        if imovel.get('numero'):
+            partes.append(f", {imovel['numero']}")
+            
+        # Complemento
+        if imovel.get('complemento'):
+            partes.append(f", {imovel['complemento']}")
+            
+        # Bairro
+        if imovel.get('bairro'):
+            partes.append(f", {imovel['bairro']}")
+            
+        # Cidade/UF
+        cidade_uf = []
+        if imovel.get('cidade'):
+            cidade_uf.append(imovel['cidade'])
+        if imovel.get('uf'):
+            cidade_uf.append(imovel['uf'])
+        
+        if cidade_uf:
+            partes.append(f" - {'-'.join(cidade_uf)}")
+        
+        # Juntar todas as partes e limpar formatação
+        endereco = ''.join(partes).replace(' ,', ',')  # Remove espaços antes de vírgulas
+        endereco = re.sub(r'\s+', ' ', endereco)  # Remove múltiplos espaços
+        endereco = endereco.strip()
+        
+        # Padronizar hífen entre bairro e cidade
+        endereco = re.sub(r'\s*-\s*', ' - ', endereco)
+        
+        return endereco
+        
+    except Exception as e:
+        logger.error(f"Erro ao formatar endereço: {str(e)}")
+        return "Endereço incompleto"
+
 def processar_observacao(observacao):
     try:
         if not observacao:
             return "N/I", "N/I", "N/I"
             
-        # Normalizar e dividir partes
         partes = [p.strip() for p in observacao.split(',')]
         
         # Determinar tipo
@@ -97,7 +140,7 @@ def handle_webhook():
         
         # Processar dados
         imovel = dados.get('imovel', {})
-        endereco = f"{imovel.get('endereco', '')} {imovel.get('numero', '')}, {imovel.get('bairro', '')}, {imovel.get('cidade', '')}-{imovel.get('uf', '')}".strip(' ,')
+        endereco = processar_endereco(imovel)
         locatario = dados.get('locatario') or dados.get('nomeContato', 'N/I')
         tipo, email, metragem = processar_observacao(dados.get('observacao', ''))
 
@@ -130,6 +173,7 @@ def handle_webhook():
     except Exception as e:
         logger.error(f"Erro: {str(e)}")
         return jsonify({"error": "Erro interno"}), 500
+
 
 @app.route("/api/agendamentos", methods=["GET"])
 def listar_agendamentos():
